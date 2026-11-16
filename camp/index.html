@@ -1,0 +1,1381 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vic Camp Forecast</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: one-screen app. Header with day tabs, map on the left, ranked campsite list on the right (stacks on phones). */
+:root {
+  --bg: #f3f2ec;
+  --panel: #fbfaf6;
+  --fg: #1f2a22;
+  --muted: #5d6a60;
+  --line: #d9dbd0;
+  --accent: #2f5d43;      /* eucalypt */
+  --accent-fg: #ffffff;
+  --ochre: #c27b2c;
+  --great: #2e8b57;
+  --good: #7aa83a;
+  --fair: #d9a21b;
+  --poor: #c4492f;
+  --sun: #f0a92a;
+  --cloud: #9aa6ad;
+  --cloud-dark: #6f7d86;
+  --rain: #2f7fc1;
+  --bolt: #e9b10f;
+  --chip: #ffffff;
+  --shadow: 0 1px 2px rgba(20,30,20,.18), 0 2px 8px rgba(20,30,20,.10);
+  --font-display: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141a16; --panel: #1b221d; --fg: #e6eae3; --muted: #9aa69c; --line: #2e3831;
+    --accent: #7fbf95; --accent-fg: #10170f; --ochre: #e0a35a;
+    --great: #4fbf7f; --good: #9ccc5a; --fair: #e8bb3f; --poor: #e8705a;
+    --cloud: #aab5bb; --cloud-dark: #8794a0; --rain: #5aa6e6; --chip: #222b25;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141a16; --panel: #1b221d; --fg: #e6eae3; --muted: #9aa69c; --line: #2e3831;
+  --accent: #7fbf95; --accent-fg: #10170f; --ochre: #e0a35a;
+  --great: #4fbf7f; --good: #9ccc5a; --fair: #e8bb3f; --poor: #e8705a;
+  --cloud: #aab5bb; --cloud-dark: #8794a0; --rain: #5aa6e6; --chip: #222b25;
+  --shadow: 0 1px 2px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.4);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 15px/1.45 var(--font-body);
+  display: flex; flex-direction: column;
+}
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ochre); outline-offset: 2px; }
+
+header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px;
+  padding-block: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--accent); color: var(--accent-fg);
+}
+.brand { display: flex; flex-direction: column; line-height: 1.05; margin-right: auto; }
+.brand h1 { margin: 0; font: 700 26px/1 var(--font-display); letter-spacing: .01em; text-wrap: balance; }
+.brand span { font-size: 13px; opacity: .85; }
+
+.days { display: flex; gap: 4px; flex-wrap: wrap; }
+.days button {
+  border: 1px solid color-mix(in srgb, var(--accent-fg) 35%, transparent);
+  background: transparent; color: var(--accent-fg);
+  padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  font: 600 15px/1.2 var(--font-display); letter-spacing: .04em; text-transform: uppercase;
+}
+.days button[aria-pressed="true"] { background: var(--accent-fg); color: var(--accent); }
+.days button small { display: block; font: 400 11px/1.1 var(--font-body); letter-spacing: 0; text-transform: none; opacity: .85; }
+
+.tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.tools label { opacity: .9; }
+.tools select {
+  background: color-mix(in srgb, var(--accent-fg) 12%, transparent); color: var(--accent-fg);
+  border: 1px solid color-mix(in srgb, var(--accent-fg) 35%, transparent); border-radius: 6px; padding: 4px 6px;
+}
+.tools select option { color: #1f2a22; background: #fff; }
+.tools button {
+  border: 1px solid color-mix(in srgb, var(--accent-fg) 35%, transparent); background: transparent;
+  color: var(--accent-fg); border-radius: 6px; padding: 4px 10px; cursor: pointer;
+}
+
+/* Time slider */
+.timebar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding-block: 8px 6px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+#play {
+  width: 34px; height: 34px; border-radius: 50%; border: 0; flex: none; cursor: pointer;
+  background: var(--accent); color: var(--accent-fg); display: grid; place-items: center;
+}
+#play svg { width: 14px; height: 14px; }
+.steps { display: flex; gap: 4px; flex: none; }
+.step {
+  display: inline-flex; align-items: center; gap: 2px; height: 34px; padding: 0 10px; cursor: pointer;
+  border: 1px solid var(--accent); border-radius: 17px; background: var(--chip); color: var(--accent);
+  font: 700 14px/1 var(--font-display); letter-spacing: .03em;
+}
+.step svg { width: 14px; height: 14px; }
+.step:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, var(--chip)); }
+.step:disabled { opacity: .4; cursor: default; }
+#play .i-pause, #play.playing .i-play { display: none; }
+#play.playing .i-pause { display: block; }
+.slider-wrap { flex: 1 1 320px; min-width: 0; position: relative; padding-bottom: 16px; }
+#slot { width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.timebar:not(.active) #slot { opacity: .55; }
+.ticks { position: absolute; left: 8px; right: 8px; bottom: 0; height: 16px; pointer-events: none; }
+.ticks i { position: absolute; top: 0; width: 1px; height: 4px; background: var(--line); }
+.ticks i.major { height: 7px; background: var(--muted); }
+.ticks span {
+  position: absolute; top: 3px; transform: translateX(-50%);
+  font: 600 12px/1 var(--font-display); letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
+}
+.slot-label { min-width: 190px; line-height: 1.2; }
+.slot-label b { display: block; font: 700 17px/1.1 var(--font-display); letter-spacing: .02em; }
+.slot-label span { font-size: 12.5px; color: var(--muted); }
+.daily-btn {
+  border: 1px solid var(--line); background: var(--chip); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 13px;
+}
+.timebar:not(.active) .daily-btn { display: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Popup: selected block + 16-block strip */
+.slot-now {
+  display: grid; grid-template-columns: 30px 1fr auto; gap: 8px; align-items: center;
+  padding: 6px 8px; margin-bottom: 8px; border-radius: 6px; font-size: 12.5px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.slot-now svg { width: 30px; height: 30px; }
+.strip-head { display: grid; grid-template-columns: repeat(4, 1fr); font: 600 11px/1 var(--font-display); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 2px; }
+.strip { display: grid; grid-template-columns: repeat(24, 1fr); margin-bottom: 10px; }
+.strip .cell {
+  border: 0; background: none; padding: 2px 0; cursor: pointer; display: grid; justify-items: center;
+  font: 600 9.5px/1.1 var(--font-body); color: var(--muted); border-radius: 4px; font-variant-numeric: tabular-nums;
+}
+.strip .cell.dstart { border-left: 1px solid var(--line); border-radius: 0; }
+.strip .cell svg { width: 15px; height: 15px; }
+.strip .cell:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.strip .cell.on { background: var(--accent); color: var(--accent-fg); border-radius: 4px; }
+
+main { flex: 1; display: flex; min-height: 0; }
+#map { flex: 1; min-width: 0; background: var(--bg); }
+
+aside {
+  width: 400px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border-left: 1px solid var(--line);
+}
+.panel-head { padding: 12px 16px 8px; display: grid; gap: 8px; border-bottom: 1px solid var(--line); }
+.panel-head h2 { margin: 0; font: 700 20px/1.1 var(--font-display); letter-spacing: .02em; text-transform: uppercase; }
+.panel-head p { margin: 0; color: var(--muted); font-size: 13px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.filters button {
+  border: 1px solid var(--line); background: var(--chip); border-radius: 999px; padding: 3px 10px;
+  font-size: 13px; cursor: pointer; color: var(--muted);
+}
+.filters button[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); box-shadow: inset 0 0 0 1px var(--accent); }
+#search { width: 100%; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--chip); }
+
+#list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+#list li { border-bottom: 1px solid var(--line); }
+#list button {
+  width: 100%; display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center;
+  padding: 9px 16px; background: none; border: 0; text-align: left; cursor: pointer;
+}
+#list button:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.park-row .chev { font: 700 18px/1 var(--font-display); color: var(--muted); transition: transform .15s; width: 10px; }
+#list li.open > .park-row { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+#list li.open > .park-row .chev { transform: rotate(90deg); }
+#list .park-row.region { grid-template-columns: 1fr auto; padding: 11px 16px; }
+.region .site b { font-size: 16px; white-space: normal; }
+.region .site b em { font-style: normal; font-weight: 400; font-size: 12px; color: var(--muted); margin-left: 4px; }
+.region .site .l1 { color: var(--fg); font-size: 13.5px; white-space: normal; margin-top: 2px; }
+.region .site .l1 { line-height: 1.4; }
+.region .dayline { display: block; margin-top: 3px; }
+.region .site .l1 span { white-space: normal; overflow: visible; font-size: inherit; }
+.region .site .dayline { color: var(--fg); }
+.region .dayline b { display: inline; font-weight: 600; font-size: inherit; white-space: normal; }
+.region .site .weeksum { display: block; color: var(--fg); margin-bottom: 4px; }
+#listSub a { color: var(--accent); }
+.region .wx svg { width: 34px; height: 34px; }
+.days4 { display: flex; gap: 4px; }
+.days4 > span { display: grid; justify-items: center; font-size: 11.5px; }
+.days4 svg { width: 26px !important; height: 26px !important; }
+.park-sites { list-style: none; margin: 0; padding: 0; background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.park-sites li { border-top: 1px solid var(--line); border-bottom: 0 !important; }
+.park-sites button { padding-left: 24px !important; }
+.park-sites .site b { font-weight: 500; font-size: 14px; }
+.park-sites .wx { margin-right: 18px; }
+.rank { font: 600 16px/1 var(--font-display); color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.site { min-width: 0; }
+.site b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.site span { display: block; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wx { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; font-size: 13px; }
+.wx svg { width: 30px; height: 30px; flex: none; }
+.wx .t { text-align: right; line-height: 1.15; }
+.wx .t small { display: block; color: var(--muted); font-size: 11.5px; }
+.score {
+  display: inline-grid; place-items: center; min-width: 34px; height: 22px; padding: 0 6px; border-radius: 6px;
+  font: 700 14px/1 var(--font-display); color: #fff; font-variant-numeric: tabular-nums;
+}
+.r-great { background: var(--great); } .r-good { background: var(--good); }
+.r-fair { background: var(--fair); color: #2a2208; } .r-poor { background: var(--poor); }
+.r-none { background: var(--cloud-dark); }
+
+.status { padding: 5px 16px; font-size: 11.5px; line-height: 1.35; color: var(--muted); border-top: 1px solid var(--line); }
+.status .err { display: inline; }
+.status a { color: var(--accent); }
+.err { color: var(--poor); }
+
+/* Map pins */
+.pin {
+  display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px 1px 2px; border-radius: 999px;
+  background: var(--chip); color: var(--fg); box-shadow: var(--shadow); border: 2px solid var(--accent);
+  font: 700 13px/1 var(--font-display); white-space: nowrap; transform: translate(-50%, -50%); cursor: pointer;
+}
+.pin svg { width: 24px; height: 24px; }
+.pin.b-great { border-color: var(--great); } .pin.b-good { border-color: var(--good); }
+.pin.b-fair { border-color: var(--fair); } .pin.b-poor { border-color: var(--poor); }
+.pin .pin-score { font-size: 11px; padding: 2px 4px; border-radius: 4px; color: #fff; margin-left: 2px; }
+.leaflet-div-icon.pin-host { background: none; border: 0; }
+
+/* Popups */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--fg); box-shadow: var(--shadow); }
+.leaflet-popup-content { margin: 12px 14px; font: 14px/1.4 var(--font-body); min-width: 280px; }
+.leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+.pop h3 { margin: 0; font: 700 20px/1.1 var(--font-display); }
+.pop .park { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+.pop table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+.pop th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; padding: 2px 4px; }
+.pop td { padding: 3px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+.pop tr.sel td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.pop td svg { width: 26px; height: 26px; display: block; }
+.pop .desc { font-size: 12px; color: var(--muted); }
+.pop .links { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.pop .links a {
+  padding: 5px 10px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13px;
+  border: 1px solid var(--accent); color: var(--accent);
+}
+.pop .links a.primary { background: var(--accent); color: var(--accent-fg); }
+
+.legend {
+  background: var(--panel); color: var(--fg); padding: 8px 10px; border-radius: 8px; box-shadow: var(--shadow);
+  font-size: 12px; display: grid; gap: 4px;
+}
+.legend div { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.leaflet-control-attribution { font-size: 10px; }
+.legend .lg-gap { margin-top: 4px; }
+.legend summary { cursor: pointer; font-weight: 600; }
+
+/* Availability dots */
+.dot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; vertical-align: 1px;
+  margin-right: 5px; box-shadow: 0 0 0 1.5px var(--chip);
+}
+.dot-yes { background: #1fa64a; }
+.dot-no { background: #d63a2a; }
+.dot-some { background: #e8a317; }
+.dot-na { background: transparent; box-shadow: inset 0 0 0 1.5px var(--cloud-dark); }
+.pin .dot { margin: 0 1px 0 4px; }
+.legend .dot { margin-right: 0; width: 12px; height: 12px; }
+.filters .dot { margin-right: 4px; }
+.avail-line { font-size: 13px; margin: -4px 0 8px; display: flex; align-items: center; }
+.pop .free { display: inline-flex; align-items: center; white-space: nowrap; }
+.legend:not([open]) { padding: 6px 10px; }
+.legend b { width: 12px; text-align: center; font-size: 14px; line-height: 1; }
+
+/* Morning → afternoon symbols */
+.ampm { display: inline-flex; align-items: center; gap: 0; }
+.ampm .arrow { width: 10px !important; height: 10px !important; flex: none; }
+.tr-better { color: var(--great); }
+.tr-steady { color: var(--muted); }
+.tr-worse { color: var(--poor); }
+.pin .ampm svg:not(.arrow) { width: 22px; height: 22px; }
+.wx .ampm svg:not(.arrow) { width: 26px; height: 26px; }
+.pop td .ampm svg:not(.arrow) { width: 24px; height: 24px; display: block; }
+.leaflet-control-layers { background: var(--panel); color: var(--fg); }
+
+@media (max-width: 760px) {
+  html, body { height: auto; }
+  main { flex-direction: column; }
+  #map { flex: none; height: 60vh; min-height: 320px; }
+  aside { width: auto; border-left: 0; border-top: 1px solid var(--line); flex: none; }
+  #list { overflow: visible; flex: none; }
+  .brand h1 { font-size: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>Vic Camp Forecast</h1>
+    <span>Parks Victoria &amp; Great Otway (GORCAPA) bookable campsites · 4-day outlook</span>
+  </div>
+  <div class="days" id="days" role="group" aria-label="Forecast day"></div>
+  <div class="tools">
+    <label for="model">Model</label>
+    <select id="model">
+      <option value="best_match">Best match (auto)</option>
+      <option value="ecmwf_ifs025">ECMWF (Europe)</option>
+      <option value="gfs_seamless">GFS (US NOAA)</option>
+      <option value="bom_access_global">BoM ACCESS-G</option>
+    </select>
+    <button id="refresh" type="button">Refresh</button>
+  </div>
+</header>
+
+<div class="timebar" id="timebar">
+  <button id="play" type="button" aria-label="Play through the forecast">
+    <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
+    <svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z" fill="currentColor"/></svg>
+  </button>
+  <div class="steps">
+    <button id="stepBack" type="button" class="step" aria-label="Back 4 hours">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>4h
+    </button>
+    <button id="stepFwd" type="button" class="step" aria-label="Forward 4 hours">
+      4h<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+  <div class="slider-wrap">
+    <label for="slot" class="sr-only">Forecast time, in 4-hour steps</label>
+    <input type="range" id="slot" min="0" max="15" step="1" value="0">
+    <div class="ticks" id="ticks" aria-hidden="true"></div>
+  </div>
+  <div class="slot-label" id="slotLabel" aria-live="polite"></div>
+  <button id="dailyBtn" type="button" class="daily-btn">Daily view</button>
+</div>
+
+<main>
+  <div id="map" aria-label="Map of Victoria with campsite forecasts"></div>
+  <aside>
+    <div class="panel-head">
+      <h2 id="listTitle">Best bets</h2>
+      <p id="listSub">Ranked by camping score: dry, mild and calm scores highest.</p>
+      <div class="filters" id="filters" role="group" aria-label="Site type">
+        <button type="button" data-kind="camp" aria-pressed="true">Campgrounds</button>
+        <button type="button" data-kind="hike" aria-pressed="true">Hike-in / walks</button>
+        <button type="button" data-kind="roof" aria-pressed="false">Cabins &amp; huts</button>
+        <button type="button" id="availOnly" aria-pressed="false"><i class="dot dot-yes"></i>Available only</button>
+      </div>
+      <input id="search" type="search" placeholder="Filter by name, park or region…" aria-label="Filter campsites">
+    </div>
+    <ul id="list"></ul>
+    <div class="status" id="status">Loading forecast…</div>
+  </aside>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// Parks Victoria bookable sites, from bookings.parks.vic.gov.au (Bookeasy feed), Oct 2026.
+// [name, park, lat, lng, type, alias, id]
+const RAW = [
+["Wilsons Prom Overnight Hiking","Wilsons Promontory National Park",-39.11561,146.38688,"Camping","wilsons-prom-overnight-hiking",141064],
+["Borough Huts Campground","Grampians National Park",-37.22415,142.53997,"Camping","borough-huts-campground",86227],
+["Buchan Caves Campground","Buchan Caves Reserve",-37.49545,148.16556,"Camping","buchan-caves-campground",33300],
+["Hammonds Campground","Great Otway National Park",-38.39891,144.02289,"Camping","hammonds-campground",136130],
+["Cooks Mill Camping Area","Cathedral Range State Park",-37.37814,145.75963,"Camping","cooks-mill-camping-area",140973],
+["Burchell Trail Overnight Hiking","Brisbane Ranges National Park",-37.85421,144.16419,"Camping","burchell-trail-overnight-hiking",140517],
+["Fairhaven Campground","French Island National Park",-38.34893,145.33647,"Camping","fairhaven-campground",66381],
+["The Wilderness Coast Walk","Croajingolong National Park",-37.74147,149.49798,"Camping","the-wilderness-coast-walk",67686],
+["Lake Elizabeth Campground","Great Otway National Park",-38.55141,143.74751,"Camping","lake-elizabeth-campground",86225],
+["Jimmy Creek Campground","Grampians National Park",-37.37182,142.50325,"Camping","jimmy-creek-campground",86231],
+["Thurra River Campground","Croajingolong National Park",-37.7808,149.30817,"Camping","thurra-river-campground",94429],
+["Corringle Foreshore Campground","Corringle Foreshore Reserve",-37.80006,148.51955,"Camping","corringle-foreshore-campground",66320],
+["Mount Buffalo Overnight Hiking","Mount Buffalo National Park",-36.72881,146.77504,"Camping","mount-buffalo-overnight-hiking",140540],
+["Boar Gully Campground","Brisbane Ranges National Park",-37.76653,144.26278,"Camping","boar-gully-campground",33299],
+["Candlebark Campground","Lake Eildon National Park",-37.17944,145.8442,"Camping","candlebark-campground",67960],
+["Bunga Arm Campground","Gippsland Lakes Coastal Park",-37.94839,147.80324,"Camping","bunga-arm-campground",66325],
+["Budj Bim Campground","Budj Bim National Park",-38.05658,141.92349,"Camping","budj-bim-campground",66329],
+["Emu Bight Campground","The Lakes National Park",-37.99539,147.652,"Camping","emu-bight-campground",66335],
+["Jerusalem Creek Campground","Lake Eildon National Park",-37.29044,145.9637,"Camping","jerusalem-creek-campground",66385],
+["Larni Yirrip Campground","Bendigo Regional Park",-36.82941,144.2336,"Camping","larni-yirrip-campground",148261],
+["Bear Gully Campground","Cape Liptrap Coastal Park",-38.88815,145.98691,"Camping","bear-gully-campground",66379],
+["Red Gum Landing Campground","Lower Glenelg National Park",-38.03523,141.15473,"Camping","red-gum-landing-campground",140536],
+["Ackle Bend Camping Area","Little Desert National Park",-36.50327,142.01957,"Camping","ackle-bend-camping-area",140528],
+["Lake Hattah Camping Area","Hattah-Kulkyne National Park",-34.75203,142.34353,"Camping","lake-hattah-camping-area",140525],
+["Wild Dog Bend Campground","Lower Glenelg National Park",-38.03795,141.24551,"Camping","wild-dog-bend-campground",140537],
+["Buandik Campground","Grampians National Park",-37.25258,142.27885,"Camping","buandik-campground",86228],
+["Wilson Hall Campground","Lower Glenelg National Park",-38.01915,141.10694,"Camping","wilson-hall-campground",140538],
+["Upper Yarra Reservoir Camping Area","Upper Yarra Reservoir Park",-37.67,145.889,"Camping","upper-yarra-reservoir-camping-area",34900],
+["Wingan Inlet Campground","Croajingolong National Park",-37.74212,149.49783,"Camping","wingan-inlet-campground",140520],
+["Tidal River Campground","Wilsons Promontory National Park",-39.03057,146.32136,"Camping","tidal-river-campground",33314],
+["Glenelg River Canoe Trail","Lower Glenelg National Park",-38.04099,141.15977,"Camping","glenelg-river-canoe-trail",60489],
+["Paradise Beach Campground","Gippsland Lakes Coastal Park",-38.19462,147.4229,"Camping","paradise-beach-campground",67396],
+["Horseshoe Bend Camping Area","Little Desert National Park",-36.4982,142.01793,"Camping","horseshoe-bend-camping-area",140529],
+["Peachtree Creek Campground","Croajingolong National Park",-37.74172,149.13743,"Camping","peachtree-creek-campground",140519],
+["Rotamah Island Campground","The Lakes National Park",-37.977,147.72469,"Camping","rotamah-island-campground",141068],
+["Mueller Inlet Campground","Croajingolong National Park",-37.77772,149.3234,"Camping","mueller-inlet-campground",94433],
+["Swan Lake Campground","Discovery Bay Coastal Park",-38.215,141.31139,"Camping","swan-lake-campground",140522],
+["Lake Mombeong Campground","Discovery Bay Coastal Park",-38.1339,141.18567,"Camping","lake-mombeong-campground",140521],
+["Forest North Campground","Lower Glenelg National Park",-38.02958,141.14052,"Camping","forest-north-campground",140531],
+["Boreang Campground","Grampians National Park",-37.17524,142.41813,"Camping","boreang-campground",86226],
+["Mount Arapiles-Tooan Camping","Mount Arapiles-Tooan State Park",-36.75927,141.84937,"Camping","mount-arapiles-tooan-camping",66328],
+["Smiths Mill Campground","Grampians National Park",-37.1082,142.4234,"Camping","smiths-mill-campground",86232],
+["Pritchards Campground","Lower Glenelg National Park",-38.05624,141.21763,"Camping","pritchards-campground",140535],
+["Coppermine Campground","Grampians National Park",-36.92614,142.42041,"Camping","coppermine-campground",70173],
+["Big Hill Campground","Great Otway National Park",-38.47532,143.93228,"Camping","big-hill-campground",136125],
+["Battersbys Campground","Lower Glenelg National Park",-38.04623,141.16002,"Camping","battersbys-campground",140530],
+["Troopers Creek Campground","Grampians National Park",-36.98695,142.43024,"Camping","troopers-creek-campground",140523],
+["Lake Mournpall Camping Area","Hattah-Kulkyne National Park",-34.70447,142.33576,"Camping","lake-mournpall-camping-area",140526],
+["Forest South Campground","Lower Glenelg National Park",-38.03091,141.13905,"Camping","forest-south-campground",140532],
+["Stapylton Campground","Grampians National Park",-36.9237,142.38333,"Camping","stapylton-campground",86233],
+["Lakeside Campground","Lake Eildon National Park",-37.17755,145.86186,"Camping","lakeside-campground",67962],
+["Fridays Campground","Brisbane Ranges National Park",-37.85976,144.19012,"Camping","fridays-campground",140518],
+["The Gums Campground","Kinglake National Park",-37.471,145.39346,"Camping","the-gums-campground",33306],
+["Wonga Camping Area","Wyperfeld National Park",-35.58379,142.05327,"Camping","wonga-camping-area",66337],
+["Princess Margaret Rose Cave Campground","Lower Glenelg National Park",-37.9895,140.991,"Camping","princess-margaret-rose-cave-campground",140539],
+["Ferntree Camping Area","Mount Buangor National Park",-37.31164,143.23861,"Camping","ferntree-camping-area",66386],
+["Stockyard Campground","Wilsons Promontory National Park",-38.85858,146.24753,"Camping","stockyard-campground",141066],
+["Devil Cove Campground","Lake Eildon National Park",-37.17399,145.84047,"Camping","devil-cove-campground",67961],
+["Shipwreck Creek Campground","Croajingolong National Park",-37.64612,149.70009,"Camping","shipwreck-creek-campground",66321],
+["Middle Creek Camping Area","Mount Buangor National Park",-37.33318,143.24663,"Camping","middle-creek-camping-area",140976],
+["Wilsons Prom Accommodation","Wilsons Promontory National Park",-39.0307,146.32221,"Accommodation","wilsons-prom-accommodation",141067],
+["Neds Gully Camping Area","Cathedral Range State Park",-37.33537,145.74136,"Camping","neds-gully-camping-area",140974],
+["First Wannon Hiker Camp - Major Mitchell Plateau","Grampians National Park",-37.32105,142.58863,"Camping","first-wannon-hiker-camp-major-mitchell-plateau",33303],
+["Shearer's Quarters","Murray Sunset National Park",-34.56233,141.07161,"Accommodation","shearers-quarters",66331],
+["Falls to Hotham Alpine Crossing","Alpine National Park",-36.9053,147.2362,"Camping","falls-to-hotham-alpine-crossing",65896],
+["Point Nepean Discovery Tents","Point Nepean National Park",-38.31156,144.6924,"Camping","point-nepean-discovery-tents",142540],
+["Hutchessons Campground","Lower Glenelg National Park",-37.99833,141.04728,"Camping","hutchessons-campground",140533],
+["Bailes Camping Area","Mount Buangor National Park",-37.31595,143.24026,"Camping","bailes-camping-area",140975],
+["Gabo Island Accommodation","Gabo Island Lighthouse Reserve",-37.56877,149.91688,"Accommodation","gabo-island-accommodation",66323],
+["Point Hicks Lighthouse Accommodation","Point Hicks Lighthouse Reserve",-37.80188,149.27564,"Accommodation","point-hicks-lighthouse-accommodation",94437],
+["Buchan Caves Accommodation","Buchan Caves Reserve",-37.49435,148.16926,"Accommodation","buchan-caves-accommodation",140972],
+["Banksia Bluff Campground","Cape Conran Coastal Park",-37.79529,148.74728,"Camping","banksia-bluff-campground",67305],
+["Longridge Campground","Yarra Valley Parklands",-37.73205,145.19234,"Camping","longridge-campground",33308],
+["Stony Creek Group Camping Area","Grampians National Park",-37.17994,142.48474,"Camping","stony-creek-group-camping-area",86234],
+["Lake Catani Campground","Mount Buffalo National Park",-36.73496,146.81319,"Camping","lake-catani-campground",140542],
+["Cape Conran Accommodation","Cape Conran Coastal Park",-37.79432,148.75131,"Accommodation","cape-conran-accommodation",141065],
+["McLennans Punt Campground","Lower Glenelg National Park",-38.00566,141.07492,"Camping","mclennans-punt-campground",140534],
+["Strachans Campground","Grampians National Park",-37.37595,142.28212,"Camping","strachans-campground",86235]
+];
+// Great Otway NP drive-in campgrounds run by the Great Ocean Road Coast and Parks Authority (GORCAPA),
+// greatoceanroadauthority.vic.gov.au, Oct 2026. Locations from OpenStreetMap; booking links go to their RMS booking pages.
+// [name, park, lat, lng, booking url, id]
+const GORCAPA = [
+["Allenvale Campground","Great Otway National Park",-38.55025,143.95966,"https://bookings12.rmscloud.com/Search/Index/64EA956A7287C69E/1/",900001],
+["Jamieson Creek Campground","Great Otway National Park",-38.5966,143.91801,"https://ibe12.rmscloud.com/319260F1DD9A5809/1",900002],
+["Blanket Bay Campground","Great Otway National Park",-38.82806,143.58278,"https://ibe12.rmscloud.com/5961DC99D1A3994C/1",900003],
+["Parker Hill Campground","Great Otway National Park",-38.84692,143.55831,"https://bookings12.rmscloud.com/search/index/5F4E511283F852CF/1",900004],
+["Aire River East Campground","Great Otway National Park",-38.8002,143.48187,"https://bookings12.rmscloud.com/Search/Index/5BAFDD64A29B6B78/1/",900005],
+["Aire River West Campground","Great Otway National Park",-38.80202,143.47666,"https://bookings12.rmscloud.com/Search/Index/7188546EC0538630/1/",900006],
+["Johanna Beach Campground","Great Otway National Park",-38.76122,143.37938,"https://bookings12.rmscloud.com/search/index/6B8F0F9854C00C9A/1",900007],
+];
+
+// BoM forecast towns near the campsites, from the bom.gov.au location search, Oct 2026.
+// [name, BoM location id, lat, lng, forecast district]. Each site links to the nearest one.
+const BOM_TOWNS = [
+["Wilsons Promontory","bvic_pt080",-39.1297,146.4244,"west-and-south-gippsland"],["Yanakie","o1218301284",-38.8124,146.2064,"west-and-south-gippsland"],
+["Walkerville","a22653",-38.8097,145.9924,"west-and-south-gippsland"],["Venus Bay","a22626",-38.6786,145.7938,"west-and-south-gippsland"],
+["Loch Sport","o3153661836",-38.0447,147.5867,"west-and-south-gippsland"],["Paradise Beach","o4655816383",-38.1894,147.4241,"west-and-south-gippsland"],
+["Golden Beach","o2339147238",-38.2107,147.3982,"west-and-south-gippsland"],
+["Halls Gap","o324529175",-37.1418,142.5202,"wimmera"],["Pomonal","o324521624",-37.1919,142.6091,"wimmera"],["Mafeking","a21570",-37.3832,142.5759,"wimmera"],
+["Wartook","o423790429",-37.0255,142.343,"wimmera"],["Laharum","a21426",-36.9236,142.3411,"wimmera"],["Zumsteins","a22944",-37.1137,142.3597,"wimmera"],
+["Glenisla","a21031",-37.2425,142.2747,"wimmera"],["Dimboola","o10772645882",-36.4554,142.0271,"wimmera"],["Natimuk","o426740324",-36.7415,141.9421,"wimmera"],
+["Dunkeld","o291548996",-37.6494,142.3442,"south-west"],["Cavendish","o124407460",-37.5268,142.0409,"south-west"],["Heywood","bvic_pt028",-38.1353,141.6319,"south-west"],
+["Nelson","o583007059",-38.0472,141.0064,"south-west"],["Dartmoor","o536319772",-37.9225,141.2767,"south-west"],["Portland","bvic_pt060",-38.34,141.601,"south-west"],
+["Macarthur","o596090099",-38.0314,142.0002,"south-west"],["Lorne","o36698974",-38.5412,143.9748,"south-west"],["Forrest","o335617920",-38.5186,143.7165,"south-west"],
+["Wye River","o353145624",-38.6333,143.8897,"south-west"],["Apollo Bay","o5704950543",-38.7547,143.6691,"south-west"],
+["Cape Otway","bvic_pt010",-38.8556,143.5128,"south-west"],["Johanna","o2521571522",-38.7569,143.3777,"south-west"],
+["Hordern Vale","a21204",-38.8,143.4948,"south-west"],["Glenaire","o280843627",-38.7789,143.4318,"south-west"],["Kennett River","o353145622",-38.6677,143.8589,"south-west"],["Deans Marsh","o324203838",-38.3972,143.885,"south-west"],
+["Buchan","o2018197599",-37.4992,148.1721,"east-gippsland"],["Mallacoota","bvic_pt040",-37.56,149.752,"east-gippsland"],["Cann River","o59634128",-37.5657,149.1499,"east-gippsland"],
+["Marlo","o59633025",-37.7951,148.5318,"east-gippsland"],["Orbost","bvic_pt054",-37.6917,148.4589,"east-gippsland"],["Lakes Entrance","bvic_pt035",-37.8717,148.006,"east-gippsland"],
+["Tamboon","a22434",-37.6802,149.1871,"east-gippsland"],["Genoa","o59636037",-37.4739,149.5918,"east-gippsland"],["Cape Conran","a20471",-37.7896,148.7172,"east-gippsland"],
+["Wingan River","o2409838127",-37.5441,149.4534,"east-gippsland"],
+["Steiglitz","o545483970",-37.8761,144.1791,"central"],["Anakie","o341864205",-37.9111,144.2545,"central"],["Bannockburn","o244037887",-38.0443,144.1738,"central"],
+["Little River","o2617894356",-37.9639,144.501,"central"],["French Island","a20952",-38.3511,145.3887,"central"],["Portsea","o2607427924",-38.3228,144.7004,"central"],
+["Sorrento","o2607452563",-38.3447,144.7421,"central"],["Reefton","a22159",-37.6731,145.904,"central"],["Warburton","o30863907",-37.7536,145.6887,"central"],
+["Kinglake","o60568232",-37.5327,145.3411,"central"],["Warrandyte","o2592604826",-37.7378,145.2237,"central"],["Templestowe","o2588608860",-37.7541,145.1486,"central"],
+["Taggerty","o899897667",-37.3217,145.7129,"north-central"],["Alexandra","o65640980",-37.1924,145.7108,"north-central"],
+["Bendigo","bvic_pt008",-36.761,144.279,"north-central"],["Eaglehawk","o2053675571",-36.7176,144.2518,"north-central"],
+["Beaufort","o417279766",-37.4293,143.3832,"north-central"],["Raglan","o598156323",-37.3616,143.3345,"north-central"],["Buangor","o1356197462",-37.3672,143.1737,"north-central"],
+["Eildon","o65639903",-37.2328,145.9102,"north-east"],["Jamieson","o1701813096",-37.3029,146.1375,"north-east"],["Bonnie Doon","o65642379",-37.0243,145.8578,"north-east"],
+["Mount Buffalo","a21777",-36.7283,146.7683,"north-east"],["Bright","o34114869",-36.7285,146.9608,"north-east"],["Mount Hotham","bvic_pt048",-36.9786,147.1328,"north-east"],
+["Falls Creek","bvic_pt022",-36.8708,147.2755,"north-east"],["Mount Buller","bvic_pt046",-37.145,146.4394,"north-east"],
+["Hattah","o2923508573",-34.7619,142.2789,"mallee"],["Yaapeet","o513051410",-35.7691,142.054,"mallee"],["Rainbow","o513051409",-35.8982,141.9956,"mallee"],
+["Murrayville","o2285643533",-35.2626,141.1826,"mallee"],["Underbool","o6001944126",-35.1709,141.8091,"mallee"],["Werrimull","o1750624773",-34.3879,141.5957,"mallee"],
+["Cullulleraine","o1750337118",-34.2757,141.593,"mallee"],["Lindsay Point","o3333538316",-34.1043,141.0134,"mallee"],
+];
+const km = (aLat, aLng, bLat, bLng) => {
+  const r = Math.PI / 180, x = (bLng - aLng) * r * Math.cos((aLat + bLat) / 2 * r), y = (bLat - aLat) * r;
+  return Math.sqrt(x * x + y * y) * 6371;
+};
+function nearestBom(lat, lng) {
+  let best = null;
+  for (const [name, id, tLat, tLng, district] of BOM_TOWNS) {
+    const d = km(lat, lng, tLat, tLng);
+    if (!best || d < best.km) best = { name, km: d,
+      url: `https://www.bom.gov.au/location/australia/victoria/${district}/${id}-${name.toLowerCase().replace(/[^a-z]+/g, '-')}` };
+  }
+  return best;
+}
+
+// Parks left out of the app (Mallee and Goldfields). Delete a name here to bring its sites back.
+const EXCLUDED_PARKS = ['Hattah-Kulkyne National Park', 'Murray Sunset National Park', 'Wyperfeld National Park', 'Bendigo Regional Park'];
+const SITES = RAW.map(([name, park, lat, lng, type, alias, id]) => ({
+  name, park, lat, lng, id,
+  kind: type === "Accommodation" ? "roof" : /hiking|walk|trail|crossing|hiker/i.test(name) ? "hike" : "camp",
+  url: `https://bookings.parks.vic.gov.au/${alias}#/accom/${id}`, booker: 'Parks Victoria',
+  bom: nearestBom(lat, lng),
+})).concat(GORCAPA.map(([name, park, lat, lng, url, id]) => ({
+  name, park, lat, lng, id, kind: 'camp', url, booker: 'GORCAPA', bom: nearestBom(lat, lng),
+}))).filter(s => !EXCLUDED_PARKS.includes(s.park));
+
+// ---------- Weather symbols (WMO codes) ----------
+const CLOUD = 'M7.5 19h9.5a4 4 0 0 0 .5-7.97A5.5 5.5 0 0 0 7 10.1 4.5 4.5 0 0 0 7.5 19z';
+const SUN = (cx, cy, r) => {
+  let rays = '';
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4, x1 = cx + Math.cos(a) * (r + 2), y1 = cy + Math.sin(a) * (r + 2),
+      x2 = cx + Math.cos(a) * (r + 4), y2 = cy + Math.sin(a) * (r + 4);
+    rays += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>`;
+  }
+  return `<g stroke="var(--sun)" stroke-width="1.8" stroke-linecap="round">${rays}</g><circle cx="${cx}" cy="${cy}" r="${r}" fill="var(--sun)"/>`;
+};
+const cloud = (fill = 'var(--cloud)', dy = 0) => `<path d="${CLOUD}" transform="translate(0 ${dy})" fill="${fill}"/>`;
+const drops = (n, len = 3) => {
+  const xs = n === 2 ? [10, 15] : [8, 12, 16];
+  return `<g stroke="var(--rain)" stroke-width="1.8" stroke-linecap="round">${xs.map(x => `<line x1="${x}" y1="${18.5}" x2="${x - 1}" y2="${18.5 + len}"/>`).join('')}</g>`;
+};
+const ICONS = {
+  clear: SUN(12, 12, 5),
+  mostly: SUN(9, 9, 4) + cloud('var(--cloud)', 2),
+  cloudy: `<path d="${CLOUD}" transform="translate(2 -3) scale(.85)" fill="var(--cloud-dark)"/>` + cloud(),
+  fog: `<g stroke="var(--cloud-dark)" stroke-width="2" stroke-linecap="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="6" y1="13" x2="18" y2="13"/><line x1="4" y1="17" x2="20" y2="17"/></g>`,
+  drizzle: cloud('var(--cloud)', -3) + drops(2, 2),
+  rain: cloud('var(--cloud-dark)', -3) + drops(3, 4),
+  showers: SUN(8, 7, 3.5) + cloud('var(--cloud)', -1) + drops(2, 3),
+  storm: cloud('var(--cloud-dark)', -3) + `<path d="M13 15l-3 5h3l-2 4 5-6h-3l2-3z" fill="var(--bolt)"/>`,
+  snow: cloud('var(--cloud)', -3) + `<g fill="var(--rain)"><circle cx="9" cy="20" r="1.3"/><circle cx="13" cy="22" r="1.3"/><circle cx="16" cy="19.5" r="1.3"/></g>`,
+};
+function wmo(code) {
+  if (code == null) return ['cloudy', 'No data'];
+  if (code === 0) return ['clear', 'Sunny'];
+  if (code === 1) return ['mostly', 'Mostly sunny'];
+  if (code === 2) return ['mostly', 'Partly cloudy'];
+  if (code === 3) return ['cloudy', 'Cloudy'];
+  if (code === 45 || code === 48) return ['fog', 'Fog'];
+  if (code >= 51 && code <= 57) return ['drizzle', 'Drizzle'];
+  if (code >= 61 && code <= 67) return ['rain', code >= 65 ? 'Heavy rain' : 'Rain'];
+  if (code >= 71 && code <= 77) return ['snow', 'Snow'];
+  if (code >= 80 && code <= 82) return ['showers', code === 82 ? 'Heavy showers' : 'Showers'];
+  if (code === 85 || code === 86) return ['snow', 'Snow showers'];
+  if (code >= 95) return ['storm', 'Thunderstorms'];
+  return ['cloudy', 'Cloudy'];
+}
+const icon = (code) => {
+  const [k, label] = wmo(code);
+  return `<svg viewBox="0 0 24 24" role="img" aria-label="${label}"><title>${label}</title>${ICONS[k]}</svg>`;
+};
+
+// ---------- Camping score ----------
+// 100 = dry, 18–27 °C, light winds, mild night. Penalties for rain, heat/cold and wind.
+function score(d) {
+  if (!d || d.tmax == null) return null;
+  let s = 100;
+  const rain = d.rain ?? 0;
+  s -= Math.min(45, rain * 5);
+  if (d.pop != null) s -= d.pop * 0.2;
+  if (d.tmax < 18) s -= (18 - d.tmax) * 2.5;
+  if (d.tmax > 27) s -= (d.tmax - 27) * 3;
+  if (d.tmin != null && d.tmin < 5) s -= (5 - d.tmin) * 2;
+  const w = Math.max(d.wind ?? 0, (d.gust ?? 0) * 0.7);
+  if (w > 25) s -= (w - 25) * 1.2;
+  if (d.code >= 95) s -= 15;
+  return Math.max(0, Math.round(s));
+}
+// Same idea for one 4-hour block: daytime blocks want 15–28 °C, overnight and evening blocks want 5 °C or warmer.
+function slotScore(b) {
+  if (!b || b.temp == null) return null;
+  let s = 100;
+  s -= Math.min(45, (b.rain ?? 0) * 8);
+  if (b.pop != null) s -= b.pop * 0.2;
+  const t = b.temp, daytime = !b.night && b.code != null;
+  if (b.night) { if (t < 5) s -= (5 - t) * 2.5; if (t > 22) s -= (t - 22) * 2; }
+  else if (daytime) { if (t < 15) s -= (15 - t) * 2.5; if (t > 28) s -= (t - 28) * 3; }
+  const w = Math.max(b.wind ?? 0, (b.gust ?? 0) * 0.7);
+  if (w > 25) s -= (w - 25) * 1.2;
+  if (b.code >= 51) s -= 10;   // any drizzle, rain or showers in the block
+  if (b.code >= 95) s -= 15;
+  return Math.max(0, Math.round(s));
+}
+// The slider steps through 4-hour blocks: 6 per day.
+const BH = 4, BPD = 24 / BH;
+const SLOT_NAMES = [['Overnight', '12am–4am'], ['Early morning', '4am–8am'], ['Morning', '8am–12pm'],
+  ['Afternoon', '12pm–4pm'], ['Late afternoon', '4pm–8pm'], ['Evening', '8pm–12am']];
+const isNightBlock = (k) => k % BPD === 0 || k % BPD === BPD - 1;
+const rating = (s) => s == null ? 'none' : s >= 75 ? 'great' : s >= 55 ? 'good' : s >= 35 ? 'fair' : 'poor';
+const RATING_LABEL = { great: 'Great', good: 'Good', fair: 'Fair', poor: 'Poor', none: 'No data' };
+
+// ---------- State ----------
+// slot: null shows the daily view; 0–23 shows one 4-hour block from the slider.
+const state = { day: 0, slot: null, model: 'best_match', kinds: new Set(['camp', 'hike']), q: '', dates: [], fetchedAt: null };
+try {
+  const saved = JSON.parse(localStorage.getItem('vcf-prefs') || '{}');
+  if (saved.model) state.model = saved.model;
+  if (saved.kinds) state.kinds = new Set(saved.kinds);
+} catch (e) {}
+const savePrefs = () => { try { localStorage.setItem('vcf-prefs', JSON.stringify({ model: state.model, kinds: [...state.kinds] })); } catch (e) {} };
+
+// ---------- Map ----------
+const VIC_BOUNDS = L.latLngBounds([-39.2, 140.9], [-33.9, 150.0]);
+const map = L.map('map', { zoomSnap: 0.25, minZoom: 5 }).setView([-37.0, 145.3], 6.5);
+// The map can start in a hidden or zero-size container (e.g. a background tab), so fit Victoria
+// once it first has a real size, and keep Leaflet in step with later resizes.
+// Until the viewer pans or zooms, every resize re-fits the whole state.
+let userMoved = false;
+const mapEl = document.getElementById('map');
+['mousedown', 'wheel', 'touchstart', 'keydown'].forEach(ev => mapEl.addEventListener(ev, () => { userMoved = true; }, { passive: true }));
+new ResizeObserver(() => {
+  if (mapEl.clientWidth < 50 || mapEl.clientHeight < 50) return;
+  map.invalidateSize();
+  if (!userMoved) map.fitBounds(VIC_BOUNDS, { padding: [10, 10], animate: false });
+}).observe(mapEl);
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+const esri = (svc, maxZoom = 19) => L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/${svc}/MapServer/tile/{z}/{y}/{x}`, {
+  maxZoom, attribution: 'Tiles &copy; Esri and contributors',
+});
+const streets = esri('World_Topo_Map');
+const canvas = esri(dark ? 'Canvas/World_Dark_Gray_Base' : 'Canvas/World_Light_Gray_Base', 16);
+const imagery = esri('World_Imagery');
+const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+  maxZoom: 17, attribution: '&copy; OpenStreetMap, SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+});
+// Terrain: topo map with Esri hillshade blended over it. Shared with the snorkelling app.
+map.createPane('shade'); map.getPane('shade').style.zIndex = 250;
+map.getPane('shade').style.mixBlendMode = 'multiply'; map.getPane('shade').style.pointerEvents = 'none';
+const terrain = L.layerGroup([
+  esri('World_Topo_Map'),
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',
+    { pane: 'shade', opacity: 0.45, maxZoom: 16 }),
+]);
+terrain.addTo(map);
+L.control.layers({ 'Terrain': terrain, 'Topo streets': streets, 'Plain': canvas, 'Satellite': imagery, 'OpenTopoMap': topo }, null, { position: 'topleft' }).addTo(map);
+L.control.scale({ imperial: false }).addTo(map);
+
+const legend = L.control({ position: 'bottomright' });
+legend.onAdd = () => {
+  const el = L.DomUtil.create('details', 'legend');
+  L.DomEvent.disableClickPropagation(el);
+  // Start folded on short maps, where it would hide pins.
+  if (document.getElementById('map').clientHeight > 650) el.open = true;
+  el.innerHTML = '<summary>Key</summary>' +
+    '<strong>Symbols: morning → afternoon</strong>' +
+    '<div><b class="tr-better">→</b>Improving</div><div><b class="tr-steady">→</b>Steady</div><div><b class="tr-worse">→</b>Deteriorating</div>' +
+    '<strong class="lg-gap">Availability (2 adults)</strong>' +
+    '<div><i class="dot dot-yes"></i>Sites free</div><div><i class="dot dot-no"></i>Fully booked</div>' +
+    '<div><i class="dot dot-some"></i>Free some nights (4-day view)</div><div><i class="dot dot-na"></i>Unknown / book elsewhere</div>';
+  return el;
+};
+legend.addTo(map);
+
+const layer = L.layerGroup().addTo(map);
+const markers = new Map();
+
+// ---------- Forecast ----------
+const sum = (a) => { const v = a.filter(x => x != null); return v.length ? v.reduce((p, c) => p + c, 0) : null; };
+// One symbol for a block of hours: if 2+ hours are wet, show the most common wet code;
+// otherwise the most common dry code. Ties go to the more severe code.
+function periodCode(codes) {
+  const v = codes.filter(c => c != null);
+  if (!v.length) return null;
+  const wet = v.filter(c => c >= 51), dry = v.filter(c => c < 51);
+  const pool = wet.length >= 2 ? wet : dry.length ? dry : v;
+  const counts = new Map();
+  pool.forEach(c => counts.set(c, (counts.get(c) || 0) + 1));
+  return [...counts].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+}
+// How bad a symbol is, for judging whether the day improves or worsens.
+function severity(code) {
+  if (code == null) return null;
+  if (code >= 95) return 6;
+  if (code >= 65 && code <= 67 || code === 82 || code >= 71 && code <= 77 || code === 85 || code === 86) return 5;
+  if (code >= 61 && code <= 64 || code >= 80) return 4;
+  if (code >= 51) return 3;
+  if (code === 3 || code === 45 || code === 48) return 2;
+  return code >= 1 ? 1 : 0;
+}
+function trend(d) {
+  const a = severity(d?.am), p = severity(d?.pm);
+  if (a == null || p == null) return { cls: 'steady', label: 'No hourly data' };
+  if (p < a) return { cls: 'better', label: 'Improving through the day' };
+  if (p > a) return { cls: 'worse', label: 'Deteriorating through the day' };
+  return { cls: 'steady', label: 'Steady through the day' };
+}
+// Morning symbol, trend arrow, afternoon symbol.
+function ampm(d) {
+  const t = trend(d);
+  return `<span class="ampm" title="Morning: ${wmo(d?.am)[1]}. Afternoon: ${wmo(d?.pm)[1]}. ${t.label}.">` +
+    `${icon(d?.am)}<svg class="arrow tr-${t.cls}" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 5h7M5 2l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>${icon(d?.pm)}</span>`;
+}
+
+async function fetchForecast(model) {
+  const cacheKey = `vcf4-${model}`;
+  let cached = null;
+  try {
+    const c = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+    if (c && c.sites?.length === SITES.length) cached = c;
+    // Reuse a cached forecast for an hour, unless the site list has changed since.
+    if (cached && Date.now() - c.t < 60 * 60 * 1000) return c;
+  } catch (e) {}
+  try {
+    return await fetchFresh(model, cacheKey);
+  } catch (err) {
+    // Weather service down or slow: fall back to the last forecast saved in the past 2 days.
+    if (cached && Date.now() - cached.t < 48 * 3600 * 1000) return { ...cached, stale: true, staleWhy: err.message };
+    throw err;
+  }
+}
+
+async function fetchFresh(model, cacheKey) {
+  const params = new URLSearchParams({
+    latitude: SITES.map(s => s.lat).join(','),
+    longitude: SITES.map(s => s.lng).join(','),
+    daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max',
+    hourly: 'weather_code,precipitation,temperature_2m,precipitation_probability,wind_speed_10m,wind_gusts_10m',
+    timezone: 'Australia/Melbourne',
+    forecast_days: '4',
+  });
+  if (model !== 'best_match') params.set('models', model);
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 30000);
+  let res;
+  try { res = await fetch('https://api.open-meteo.com/v1/forecast?' + params, { signal: ctl.signal }); }
+  catch (e) { throw new Error(e.name === 'AbortError' ? 'the weather service (Open-Meteo) did not respond within 30 s' : 'the weather service (Open-Meteo) could not be reached'); }
+  finally { clearTimeout(timer); }
+  if (!res.ok) throw new Error(`Weather service replied ${res.status}`);
+  let json = await res.json();
+  if (!Array.isArray(json)) json = [json];
+  const maxOf = (a) => { const v = a.filter(x => x != null); return v.length ? Math.max(...v) : null; };
+  const out = { t: Date.now(), dates: json[0].daily.time, sites: [], slots: [] };
+  json.forEach(j => {
+    const d = j.daily, h = j.hourly;
+    // Hourly arrays run midnight to midnight, local time. Morning = 6am–noon, afternoon = noon–6pm.
+    const slice = (arr, day, from, to) => arr ? arr.slice(day * 24 + from, day * 24 + to) : [];
+    // 24 four-hour blocks over the 4 days, for the time slider.
+    out.slots.push(Array.from({ length: d.time.length * BPD }, (_, k) => {
+      const from = k * BH, to = from + BH, cut = (arr) => arr ? arr.slice(from, to) : [];
+      return {
+        code: periodCode(cut(h?.weather_code)), temp: h?.temperature_2m?.[from + BH / 2] ?? null,
+        rain: sum(cut(h?.precipitation)), pop: maxOf(cut(h?.precipitation_probability)),
+        wind: maxOf(cut(h?.wind_speed_10m)), gust: maxOf(cut(h?.wind_gusts_10m)), night: isNightBlock(k),
+      };
+    }));
+    out.sites.push(d.time.map((_, i) => ({
+      code: d.weather_code[i], tmax: d.temperature_2m_max[i], tmin: d.temperature_2m_min[i],
+      rain: d.precipitation_sum[i], pop: d.precipitation_probability_max?.[i] ?? null,
+      wind: d.wind_speed_10m_max[i], gust: d.wind_gusts_10m_max[i],
+      am: periodCode(slice(h?.weather_code, i, 6, 12)), pm: periodCode(slice(h?.weather_code, i, 12, 18)),
+      amRain: sum(slice(h?.precipitation, i, 6, 12)), pmRain: sum(slice(h?.precipitation, i, 12, 18)),
+    })));
+  });
+  out.empty = out.sites.every(days => days.every(x => x.tmax == null));
+  if (!out.empty) { try { localStorage.setItem(cacheKey, JSON.stringify(out)); } catch (e) {} }
+  return out;
+}
+
+let forecast = null;
+async function load(force = false) {
+  const status = document.getElementById('status');
+  status.textContent = 'Loading forecast…';
+  if (force) { try { localStorage.removeItem(`vcf4-${state.model}`); } catch (e) {} }
+  try {
+    let f = await fetchForecast(state.model);
+    let note = '';
+    if (f.stale) note += `<br><span class="err">Showing the forecast saved at ${new Date(f.t).toLocaleString('en-AU', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}, because ${f.staleWhy}. Press Refresh to try again.</span>`;
+    if (f.empty) {
+      note = `<br><span class="err">${modelName(state.model)} has no data for Victoria right now, so this shows Best match.</span>`;
+      f = await fetchForecast('best_match');
+    }
+    forecast = f;
+    state.dates = f.dates;
+    SITES.forEach((s, i) => {
+      s.days = f.sites[i]; s.scores = s.days.map(score);
+      s.slots = f.slots[i]; s.slotScores = s.slots.map(slotScore);
+    });
+    setupSlider();
+    renderDays();
+    render();
+    const when = new Date(f.t).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+    statusBase = `<span title="${modelName(f.empty ? 'best_match' : state.model)} model">Weather <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> ${when}</span> · ` +
+      `Warnings <a href="https://www.bom.gov.au/vic/" target="_blank" rel="noopener">BoM</a>, <a href="https://www.cfa.vic.gov.au/warnings-restrictions" target="_blank" rel="noopener">CFA</a>` + note;
+    updateStatusNote();
+    loadAvailability();
+    loadWeek(force);
+  } catch (err) {
+    // Still show live availability for the next 4 nights without the weather.
+    if (!state.dates.length) {
+      const d0 = new Date();
+      state.dates = [0, 1, 2, 3].map(i => new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() + i).toLocaleDateString('en-CA'));
+      renderDays();
+    }
+    statusBase = `<span class="err">Couldn't load the forecast: ${err.message}. Press Refresh to try again.</span>`;
+    updateStatusNote();
+    render();
+    loadAvailability();
+  }
+}
+// ---------- Live availability (Parks Victoria booking system) ----------
+// The bookings.parks.vic.gov.au site reads site-by-site availability from Bookeasy (region 114).
+// One request covers every Parks Victoria campground for the 4 forecast nights, for 2 adults.
+// Each campground gets [{free, total}] per night. GORCAPA sites book through RMS, which has no public feed.
+let availStatus = 'idle';   // idle | loading | ok | error
+let availAt = null;
+async function loadAvailability() {
+  if (!state.dates.length) return;
+  availStatus = 'loading'; render();
+  const ids = SITES.filter(s => s.booker === 'Parks Victoria').map(s => s.id);
+  const params = new URLSearchParams({
+    q: '114', date: state.dates[0], period: String(state.dates.length), adults: '2', children: '0', infants: '0',
+    enforceBookingConditions: 'false', enforceEntirePeriod: 'false', includeInactiveOperators: 'false',
+    InclAvailability: 'true', operators: ids.join(','),
+  });
+  try {
+    const res = await fetch('https://webapi.bookeasy.com.au/be/getAccomRatesGrid?' + params);
+    if (!res.ok) throw new Error(`booking system replied ${res.status}`);
+    const ops = await res.json();
+    const byId = new Map();
+    for (const op of ops) {
+      const nights = state.dates.map(() => ({ free: 0, total: 0 }));
+      for (const item of op.Items || []) {
+        for (const d of item.Availability?.Days || []) {
+          const n = state.dates.indexOf(String(d.Date).slice(0, 10));
+          if (n < 0) continue;
+          nights[n].total++;
+          if (d.IsAvailable) nights[n].free++;
+        }
+      }
+      byId.set(op.OperatorId, nights);
+    }
+    SITES.forEach(s => { s.avail = byId.get(s.id) || null; });
+    availStatus = 'ok'; availAt = new Date();
+  } catch (err) {
+    console.warn('Availability:', err);
+    availStatus = 'error';
+  }
+  render(); updateStatusNote();
+}
+// Which night the current view is about. An overnight (12am–6am) block belongs to the night before.
+function viewNight() {
+  if (state.slot != null) return state.slot % BPD === 0 ? Math.floor(state.slot / BPD) - 1 : Math.floor(state.slot / BPD);
+  return state.day === 'week' ? 'all' : state.day;   // a day index, or 'all' (4-day and 7-day views)
+}
+function availState(s, night = viewNight()) {
+  if (s.booker !== 'Parks Victoria') return { cls: 'na', label: 'Booked through GORCAPA: check availability on their site' };
+  if (availStatus === 'loading' || availStatus === 'idle') return { cls: 'na', label: 'Checking availability…' };
+  if (availStatus === 'error') return { cls: 'na', label: "Couldn't reach the booking system" };
+  if (!s.avail || s.avail.every(n => !n.total)) return { cls: 'na', label: 'No online availability for this site' };
+  if (night === 'all') {
+    const open = s.avail.filter(n => n.free > 0).length;
+    if (open === s.avail.length) return { cls: 'yes', label: 'Sites free every night' };
+    if (open === 0) return { cls: 'no', label: 'Fully booked all 4 nights' };
+    return { cls: 'some', label: `Sites free ${open} of ${s.avail.length} nights` };
+  }
+  if (night < 0) return { cls: 'na', label: 'Last night' };
+  const n = s.avail[night];
+  if (!n || !n.total) return { cls: 'na', label: 'Not bookable online that night' };
+  return n.free > 0
+    ? { cls: 'yes', label: `${n.free} of ${n.total} sites free` }
+    : { cls: 'no', label: `Fully booked (${n.total} sites)` };
+}
+const dot = (a) => `<i class="dot dot-${a.cls}" title="${a.label}"></i>`;
+let statusBase = '';
+function updateStatusNote() {
+  const note = availStatus === 'ok'
+    ? ` · <span title="Live availability for 2 adults">Sites <a href="https://bookings.parks.vic.gov.au/book" target="_blank" rel="noopener">Parks Vic</a> ${availAt.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}</span>`
+    : availStatus === 'error' ? ` · <span class="err">Availability check failed</span>`
+    : availStatus === 'loading' ? ' · Checking availability…' : '';
+  document.getElementById('status').innerHTML = statusBase + note;
+}
+
+const modelName = (m) => document.querySelector(`#model option[value="${m}"]`)?.textContent ?? m;
+
+// ---------- Rendering ----------
+function dayLabel(iso, i) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return {
+    top: i === 0 ? 'Today' : dt.toLocaleDateString('en-AU', { weekday: 'short' }),
+    sub: dt.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }),
+  };
+}
+
+function renderDays() {
+  const el = document.getElementById('days');
+  const daily = state.slot == null;
+  const btns = state.dates.map((iso, i) => {
+    const l = dayLabel(iso, i);
+    return `<button type="button" data-day="${i}" aria-pressed="${daily && state.day === i}">${l.top}<small>${l.sub}</small></button>`;
+  });
+  btns.push(`<button type="button" data-day="all" aria-pressed="${daily && state.day === 'all'}">4 days<small>overall</small></button>`);
+  btns.push(`<button type="button" data-day="week" aria-pressed="${daily && state.day === 'week'}">7 days<small>outlook</small></button>`);
+  el.innerHTML = btns.join('');
+}
+
+// ---------- Time slider (4-hour blocks) ----------
+const slider = document.getElementById('slot');
+const slotLabel = (k) => {
+  const day = Math.floor(k / BPD), l = dayLabel(state.dates[day], day), [name, hours] = SLOT_NAMES[k % BPD];
+  return { day: `${l.top} ${l.sub}`, name, hours };
+};
+function setupSlider() {
+  slider.max = state.dates.length * BPD - 1;
+  // Start the slider at the block we're in now.
+  const now = new Date(), todayIso = state.dates[0];
+  const nowSlot = Math.floor(now.getHours() / BH);
+  if (state.slot == null) slider.value = todayIso ? nowSlot : 0;
+  const n = +slider.max;
+  document.getElementById('ticks').innerHTML =
+    Array.from({ length: n + 1 }, (_, k) => `<i style="left:${k / n * 100}%" class="${k % BPD === 0 ? 'major' : ''}"></i>`).join('') +
+    state.dates.map((iso, d) => {
+      const l = dayLabel(iso, d);
+      return `<span style="left:${(d * BPD + (BPD - 1) / 2) / n * 100}%">${l.top}</span>`;
+    }).join('');
+  updateSlotLabel();
+}
+function updateSlotLabel() {
+  const el = document.getElementById('slotLabel');
+  const bar = document.getElementById('timebar');
+  bar.classList.toggle('active', state.slot != null);
+  if (state.slot == null) {
+    el.innerHTML = '<b>Daily view</b><span>Use the 4h buttons or slider to step through 4-hour blocks</span>';
+    return;
+  }
+  const l = slotLabel(state.slot);
+  el.innerHTML = `<b>${l.day} · ${l.name}</b><span>${l.hours}</span>`;
+}
+function setSlot(k) {
+  state.slot = k;
+  if (k != null) { slider.value = k; state.day = Math.floor(k / BPD); }
+  document.getElementById('stepBack').disabled = k === 0;
+  document.getElementById('stepFwd').disabled = k != null && k >= +slider.max;
+  updateSlotLabel(); renderDays(); render();
+}
+// From the daily view, the first click lands on where the slider sits; after that each click moves 4 hours.
+const step = (dir) => {
+  stopPlay();
+  const k = state.slot == null ? +slider.value : Math.min(+slider.max, Math.max(0, state.slot + dir));
+  setSlot(k);
+};
+document.getElementById('stepBack').addEventListener('click', () => step(-1));
+document.getElementById('stepFwd').addEventListener('click', () => step(1));
+slider.addEventListener('input', () => setSlot(+slider.value));
+let playTimer = null;
+const playBtn = document.getElementById('play');
+function stopPlay() {
+  clearInterval(playTimer); playTimer = null;
+  playBtn.setAttribute('aria-label', 'Play through the forecast'); playBtn.classList.remove('playing');
+}
+playBtn.addEventListener('click', () => {
+  if (playTimer) return stopPlay();
+  if (state.slot == null || state.slot >= +slider.max) setSlot(state.slot == null ? +slider.value : 0);
+  playBtn.setAttribute('aria-label', 'Pause'); playBtn.classList.add('playing');
+  playTimer = setInterval(() => {
+    if (state.slot >= +slider.max) return stopPlay();
+    setSlot(state.slot + 1);
+  }, 1200);
+});
+document.getElementById('dailyBtn').addEventListener('click', () => { stopPlay(); setSlot(null); });
+
+// For the 4-day and 7-day views show the worst day's symbol (wettest/stormiest), so a wet day isn't hidden.
+function siteDay(s) {
+  const days = state.day === 'week' ? s.week : s.days;
+  if (!days) return null;
+  if (typeof state.day === 'number') return days[state.day];
+  let worst = 0;
+  days.forEach((d, i) => {
+    const a = severity(d.code) ?? -1, b = severity(days[worst].code) ?? -1;
+    if (a > b || (a === b && (d.rain ?? 0) > (days[worst].rain ?? 0))) worst = i;
+  });
+  return { ...days[worst], am: days[worst].am ?? days[worst].code, pm: days[worst].pm ?? days[worst].code,
+    tmax: Math.max(...days.map(d => d.tmax ?? -99)), tmin: Math.min(...days.map(d => d.tmin ?? 99)), rain: days.reduce((a, d) => a + (d.rain ?? 0), 0) };
+}
+
+const visible = () => SITES.filter(s => state.kinds.has(s.kind) &&
+  (!state.q || (s.name + ' ' + s.park + ' ' + regionOf(s.park)).toLowerCase().includes(state.q)) &&
+  (!state.availOnly || ['yes', 'some'].includes(availState(s).cls)));
+
+const fmt = (v, unit = '', dp = 0) => v == null ? '–' : `${(+v).toFixed(dp)}${unit}`;
+
+function render() {
+  // Keep an open popup open across re-renders (e.g. while the slider plays).
+  const openId = [...markers].find(([, m]) => m.isPopupOpen())?.[0];
+  layer.clearLayers();
+  markers.clear();
+  const sites = visible();
+  for (const s of sites) {
+    let html;
+    const av = dot(availState(s));
+    if (state.slot != null) {
+      const b = s.slots?.[state.slot];
+      html = `<div class="pin">${av}${icon(b?.code)}<span>${fmt(b?.temp, '°')}</span></div>`;
+    } else {
+      const d = siteDay(s);
+      html = `<div class="pin">${av}${ampm(d)}<span>${fmt(d?.tmax, '°')}</span></div>`;
+    }
+    const m = L.marker([s.lat, s.lng], {
+      icon: L.divIcon({ className: 'pin-host', html, iconSize: [0, 0] }),
+      title: s.name, keyboard: true,
+    }).bindPopup(() => popup(s), { maxWidth: 430, minWidth: 380, autoPanPadding: [20, 20] });
+    m.addTo(layer);
+    markers.set(s.id, m);
+  }
+  if (openId != null) markers.get(openId)?.openPopup();
+  renderList(sites);
+}
+
+// 24-block strip for the popup: the whole 4 days at a glance, current slider block highlighted.
+function slotStrip(s) {
+  if (!s.slots) return '';
+  const cells = s.slots.map((b, k) => {
+    const l = slotLabel(k);
+    return `<button type="button" class="cell${state.slot === k ? ' on' : ''}${k % BPD === 0 ? ' dstart' : ''}" data-slot="${k}"
+      title="${l.day} ${l.name}: ${wmo(b.code)[1]}, ${fmt(b.temp, '°C')}, ${fmt(b.rain, ' mm', 1)}">${icon(b.code)}<span>${fmt(b.temp, '°')}</span></button>`;
+  }).join('');
+  const heads = state.dates.map((iso, d) => `<span>${dayLabel(iso, d).top}</span>`).join('');
+  return `<div class="strip-head">${heads}</div><div class="strip">${cells}</div>`;
+}
+
+// "Sites free" cell for one night in the popup table.
+function nightCell(s, i) {
+  const a = availState(s, i), n = s.avail?.[i];
+  const text = a.cls === 'yes' || a.cls === 'no' ? `${n.free}/${n.total}` : '–';
+  return `<span class="free">${dot(a)}${text}</span>`;
+}
+function popup(s) {
+  const week = state.day === 'week' && s.week;
+  const rows = week
+    ? s.week.map((d, i) => {
+        const l = dayLabel(weekDates[i], i);
+        return `<tr><td><b>${l.top}</b><div class="desc">${l.sub}</div></td><td>${icon(d.code)}</td>
+          <td><b>${fmt(d.tmax, '°')}</b> / ${fmt(d.tmin, '°')}<div class="desc">${wmo(d.code)[1]}</div></td>
+          <td>${fmt(d.rain, ' mm', 1)}<div class="desc">${d.pop != null ? d.pop + '% chance' : ''}</div></td>
+          <td>${fmt(d.wind, '')}<div class="desc">gust ${fmt(d.gust)}</div></td><td>${i < 4 ? nightCell(s, i) : ''}</td></tr>`;
+      }).join('')
+    : (s.days || []).map((d, i) => {
+        const l = dayLabel(state.dates[i], i);
+        const sel = state.day === i ? ' class="sel"' : '';
+        return `<tr${sel}><td><b>${l.top}</b><div class="desc">${l.sub}</div></td><td>${ampm(d)}<div class="desc">${trend(d).label.replace(' through the day', '')}</div></td>
+          <td><b>${fmt(d.tmax, '°')}</b> / ${fmt(d.tmin, '°')}<div class="desc">${wmo(d.code)[1]}</div></td>
+          <td>${fmt(d.rain, ' mm', 1)}<div class="desc">${d.pop != null ? d.pop + '% chance' : ''}</div></td>
+          <td>${fmt(d.wind, '')}<div class="desc">gust ${fmt(d.gust)}</div></td>
+          <td>${nightCell(s, i)}</td></tr>`;
+      }).join('');
+  const kindLabel = { camp: 'Campground', hike: 'Hike-in / walk', roof: 'Cabins & huts' }[s.kind];
+  let now = '';
+  if (state.slot != null && s.slots) {
+    const b = s.slots[state.slot], l = slotLabel(state.slot);
+    now = `<div class="slot-now">${icon(b.code)}<div><b>${l.day} · ${l.name}</b> ${l.hours}<br>
+      ${wmo(b.code)[1]}, ${fmt(b.temp, '°C')}, rain ${fmt(b.rain, ' mm', 1)}${b.pop != null ? ` (${b.pop}%)` : ''}, wind ${fmt(b.wind)} gust ${fmt(b.gust)} km/h</div></div>`;
+  }
+  const av = availState(s), vn = viewNight();
+  const when = vn === 'all' || vn < 0 || av.cls === 'na' ? '' : vn === 0 ? ' tonight' : ` ${dayLabel(state.dates[vn], vn).top} night`;
+  return `<div class="pop"><h3>${s.name}</h3><div class="park">${s.park} · ${kindLabel}</div>
+    <div class="avail-line">${dot(av)}${av.label}${when}</div>
+    ${now}${week ? '' : slotStrip(s)}
+    ${(week || s.days) ? `<table><thead><tr><th>Day</th><th>${week ? '' : 'AM → PM'}</th><th>°C</th><th>Rain</th><th>Wind km/h</th><th>Sites free</th></tr></thead><tbody>${rows}</tbody></table>` : '<p>No forecast loaded.</p>'}
+    <div class="links">
+      <a class="primary" href="${s.url}" target="_blank" rel="noopener">Book at ${s.booker}</a>
+      <a href="${s.bom.url}" target="_blank" rel="noopener" title="Nearest BoM forecast town, ${Math.round(s.bom.km)} km away">BoM 7-day: ${s.bom.name}</a>
+      <a href="https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}" target="_blank" rel="noopener">Directions</a>
+      <a href="https://open-meteo.com/en/docs?latitude=${s.lat}&longitude=${s.lng}&timezone=Australia%2FMelbourne" target="_blank" rel="noopener">Hourly detail</a>
+    </div></div>`;
+}
+
+function renderList(sites) {
+  // Sites within a region: free spots first, then unknown, then booked out; then by name.
+  const AV_ORDER = { yes: 0, some: 1, na: 2, no: 3 };
+  const ranked = sites.map(s => ({ s, av: AV_ORDER[availState(s).cls] }))
+    .sort((a, b) => a.av - b.av || a.s.name.localeCompare(b.s.name));
+  const slotMode = state.slot != null && state.dates.length;
+  const title = slotMode ? `Regional forecast · ${slotLabel(state.slot).day} ${slotLabel(state.slot).name.toLowerCase()}` :
+    state.day === 'all' ? '4-day regional forecast' :
+    state.day === 'week' ? '7-day outlook' :
+    state.dates.length ? `Regional forecast · ${dayLabel(state.dates[state.day], state.day).top} ${dayLabel(state.dates[state.day], state.day).sub}` : 'Regional forecast';
+  const siteWx = s => {
+    if (slotMode) {
+      const b = s.slots?.[state.slot];
+      return { html: icon(b?.code), temp: b?.temp, rain: b?.rain };
+    }
+    const d = siteDay(s);
+    return { html: ampm(d), temp: d?.tmax, rain: d?.rain };
+  };
+  const range = (vals, unit, dp = 0) => {
+    const v = vals.filter(x => x != null);
+    if (!v.length) return '–';
+    const lo = Math.min(...v), hi = Math.max(...v), f = x => x.toFixed(dp);
+    return f(lo) === f(hi) ? `${f(lo)}${unit}` : `${f(lo)}–${f(hi)}${unit}`;
+  };
+
+  // Group sites by region, in a fixed west-to-east order.
+  const parks = new Map(Object.keys(REGIONS).map(r => [r, []]));
+  for (const x of ranked) {
+    const rg = regionOf(x.s.park);
+    if (!parks.has(rg)) parks.set(rg, []);
+    parks.get(rg).push(x);
+  }
+  // Most common weather code across a region's sites (ties go to the wetter/worse one).
+  const typical = codes => {
+    const counts = new Map();
+    codes.filter(c => c != null).forEach(c => counts.set(c, (counts.get(c) || 0) + 1));
+    if (!counts.size) return null;
+    return [...counts].sort((a, b) => b[1] - a[1] || (severity(b[0]) ?? 0) - (severity(a[0]) ?? 0))[0][0];
+  };
+  const maxOf = v => { v = v.filter(x => x != null); return v.length ? Math.max(...v) : null; };
+  const label = c => wmo(c)[1];
+
+  const groups = [...parks].filter(([, items]) => items.length).map(([park, items]) => {
+    const sites = items.map(x => x.s);
+    let text;
+    if (slotMode) {
+      text = describeBlock(sites.map(s => s.slots?.[state.slot]), slotLabel(state.slot));
+    } else if (state.day === 'week') {
+      text = describeWeek(sites);
+    } else if (state.day === 'all') {
+      text = state.dates.map((date, i) =>
+        `<span class="dayline"><b>${dayLabel(date, i).top}:</b> ${describeDay(sites.map(s => s.days?.[i]), true)}</span>`).join('');
+    } else {
+      text = describeDay(sites.map(s => s.days?.[state.day]));
+    }
+    return { park, items, text, wx: items.map(x => siteWx(x.s)) };
+  });
+
+  document.getElementById('listTitle').textContent = title;
+  document.getElementById('listSub').innerHTML = state.day === 'week' && !slotMode
+    ? `Summary of the next 7 days for each region, then day by day. Days 5–7 are less certain. For the weeks and months ahead, see the <a href="https://www.bom.gov.au/climate/outlooks/#/overview/summary" target="_blank" rel="noopener">BoM long-range outlook</a>.`
+    : `${groups.length} regions, west to east. Each summary describes the typical conditions across the region's sites` +
+      (slotMode ? ' for this 4-hour block.' : '.') + ' Click a region to see its sites.';
+
+  document.getElementById('list').innerHTML = groups.map(g => {
+    const open = openParks.has(g.park);
+    const n = g.items.length;
+    const head = `<button type="button" class="park-row region" data-park="${g.park}" aria-expanded="${open}">
+      <span class="site"><b>${g.park} <em>${n} site${n > 1 ? 's' : ''}</em></b><span class="l1">${g.text}</span></span>
+      <span class="wx"><span class="chev" aria-hidden="true">›</span></span></button>`;
+    const kids = !open ? '' : `<ul class="park-sites">${g.items.map(({ s }, j) => {
+      const w = g.wx[j];
+      return `<li><button type="button" data-id="${s.id}">
+        <span class="rank"></span>
+        <span class="site"><b>${s.name}</b><span>${shortPark(s.park)}</span></span>
+        <span class="wx">${w.html}<span class="t">${fmt(w.temp, '°')}<small>${fmt(w.rain, ' mm', w.rain >= 10 ? 0 : 1)}</small></span></span></button></li>`;
+    }).join('')}</ul>`;
+    return `<li class="${open ? 'open' : ''}">${head}${kids}</li>`;
+  }).join('') || '<li class="status">No regions match. Try another filter.</li>';
+}
+const openParks = new Set();
+
+// ---------- Plain-English forecast text for a group of sites ----------
+const isWet = c => c != null && c >= 51;
+const SKY = c => c == null ? 'Unknown' : c === 0 ? 'Sunny' : c === 1 ? 'Mostly sunny' : c === 2 ? 'Partly cloudy'
+  : c === 45 || c === 48 ? 'Foggy' : 'Cloudy';
+const WET = c => c >= 95 ? 'thunderstorms' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? 'snow'
+  : c >= 80 ? 'showers' : c >= 61 ? 'rain' : 'drizzle';
+const mostCommon = codes => {
+  const m = new Map();
+  codes.filter(c => c != null).forEach(c => m.set(c, (m.get(c) || 0) + 1));
+  return m.size ? [...m].sort((a, b) => b[1] - a[1] || (severity(b[0]) ?? 0) - (severity(a[0]) ?? 0))[0][0] : null;
+};
+const hiOf = v => { v = v.filter(x => x != null); return v.length ? Math.max(...v) : null; };
+const loOf = v => { v = v.filter(x => x != null); return v.length ? Math.min(...v) : null; };
+const feel = t => t < 12 ? 'cold' : t < 17 ? 'cool' : t < 23 ? 'mild' : t < 29 ? 'warm' : t < 35 ? 'hot' : 'very hot';
+function windWords(w, g) {
+  if (w == null) return '';
+  const s = w < 15 ? 'Light winds' : w < 25 ? 'Moderate winds' : w < 40 ? 'Fresh winds' : 'Strong winds';
+  return g != null && g >= 60 ? `${s}, gusting to ${Math.round(g)} km/h.` : `${s}.`;
+}
+function rainWords(rains, codes) {
+  const hi = hiOf(rains), lo = loOf(rains);
+  if (hi == null || hi < 0.2) return '';
+  const heavy = hi >= 10 || codes.some(c => [65, 67, 82, 96, 99].includes(c));
+  const amt = lo != null && Math.round(lo) !== Math.round(hi) && lo >= 0.5 ? `${Math.round(lo)}–${Math.round(hi)} mm` : `up to ${hi < 1 ? hi.toFixed(1) : Math.round(hi)} mm`;
+  return `${heavy ? ', possibly heavy' : ''} (${amt})`;
+}
+function describeDay(ds, short = false) {
+  ds = ds.filter(Boolean);
+  if (!ds.length) return 'No forecast yet.';
+  const am = mostCommon(ds.map(d => d.am)), pm = mostCommon(ds.map(d => d.pm));
+  const day = mostCommon(ds.map(d => d.code));
+  let cond;
+  if (!isWet(am) && !isWet(pm)) {
+    const a = SKY(am), p = SKY(pm);
+    cond = a === p ? (isWet(day) ? `${a} day with a chance of ${WET(day)}` : `${a} day`)
+      : `${a} morning, ${p.toLowerCase()} afternoon`;
+  } else if (isWet(am) && isWet(pm)) {
+    cond = WET(am) === WET(pm) ? `${WET(am)[0].toUpperCase() + WET(am).slice(1)} through the day`
+      : `Morning ${WET(am)}, afternoon ${WET(pm)}`;
+  } else {
+    cond = isWet(am) ? `${SKY(pm)} day with morning ${WET(am)}` : `${SKY(am)} day with afternoon ${WET(pm)}`;
+  }
+  if (/drizzle|rain|showers|storms|snow/.test(cond)) cond += rainWords(ds.map(d => d.rain), ds.flatMap(d => [d.am, d.pm, d.code]));
+  const tmax = hiOf(ds.map(d => d.tmax)), tlo = loOf(ds.map(d => d.tmax)), tmin = loOf(ds.map(d => d.tmin));
+  const temps = tmax == null ? '' : `, and ${feel(tmax)} temperatures ${tlo != null && Math.round(tlo) < Math.round(tmax) - 1 ? `of ${Math.round(tlo)}–${Math.round(tmax)}°` : `up to ${Math.round(tmax)}°`}`;
+  const night = !short && tmin != null && tmin < 8 ? ` Cold overnight, down to ${Math.round(tmin)}°.` : '';
+  return `${cond}${temps}.${night} ${windWords(hiOf(ds.map(d => d.wind)), hiOf(ds.map(d => d.gust)))}`.trim();
+}
+// 7-day outlook: a one-paragraph summary for the week, then one short line per day.
+function describeWeek(sites) {
+  if (weekStatus === 'loading' || weekStatus === 'idle') return 'Loading the 7-day outlook…';
+  if (weekStatus === 'error') return "Couldn't load the 7-day outlook. Press Refresh to try again.";
+  const n = weekDates.length;
+  const days = Array.from({ length: n }, (_, i) => {
+    const ds = sites.map(s => s.week?.[i]).filter(Boolean);
+    const rains = ds.map(d => d.rain ?? 0).sort((a, b) => a - b);
+    return {
+      i, code: mostCommon(ds.map(d => d.code)), hi: hiOf(ds.map(d => d.tmax)), lo: loOf(ds.map(d => d.tmin)),
+      rainMax: hiOf(ds.map(d => d.rain)), rainMid: rains[Math.floor(rains.length / 2)] ?? 0,
+      wind: hiOf(ds.map(d => d.wind)), gust: hiOf(ds.map(d => d.gust)),
+    };
+  });
+  const name = i => dayLabel(weekDates[i], i).top;
+  const list = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+  const wet = days.filter(d => d.rainMid >= 1 || (isWet(d.code) && d.rainMax >= 2));
+  // "today and on Wed and Fri" / "on Wed and Fri"
+  const whenWet = () => {
+    const rest = wet.filter(d => d.i > 0).map(d => name(d.i));
+    return wet[0]?.i === 0 ? `today${rest.length ? ' and on ' + list(rest) : ''}` : 'on ' + list(rest);
+  };
+  let s = !wet.length ? 'A mostly dry week'
+    : wet.length >= 5 ? 'An unsettled week, with rain on most days'
+    : wet.length <= 2 ? `Mostly dry, with rain likely ${whenWet()}`
+    : `A mixed week, with rain likely ${whenWet()}`;
+  const totals = sites.map(x => (x.week || []).reduce((a, d) => a + (d.rain ?? 0), 0));
+  const tot = hiOf(totals);
+  if (tot != null && tot >= 2) s += ` (up to ${Math.round(tot)} mm over the week)`;
+  const his = days.map(d => d.hi).filter(x => x != null);
+  if (his.length) {
+    const warm = days.reduce((a, d) => (d.hi ?? -99) > (a.hi ?? -99) ? d : a);
+    s += `. ${feel(Math.max(...his))[0].toUpperCase() + feel(Math.max(...his)).slice(1)}, with highs of ${Math.round(Math.min(...his))}–${Math.round(Math.max(...his))}°, warmest ${warm.i === 0 ? 'today' : 'on ' + name(warm.i)}`;
+  }
+  const cold = loOf(days.map(d => d.lo));
+  if (cold != null && cold < 5) s += `; cold nights down to ${Math.round(cold)}°`;
+  const windy = days.filter(d => (d.wind ?? 0) >= 35 || (d.gust ?? 0) >= 70);
+  s += windy.length ? `. Strong winds ${windy.length > 2 ? 'on several days' : 'on ' + list(windy.map(d => name(d.i)))}.` : '.';
+  const lines = days.map(d => {
+    const c = d.code, w = isWet(c) ? WET(c) : '';
+    const cond = !w ? SKY(c) : d.rainMax < 1 ? `Mostly dry, ${w} possible` : w[0].toUpperCase() + w.slice(1);
+    const rain = d.rainMax >= 1 ? `, up to ${Math.round(d.rainMax)} mm` : '';
+    return `<span class="dayline"><b>${name(d.i)}:</b> ${cond}${rain}, ${d.hi != null ? Math.round(d.hi) + '°' : '–'}</span>`;
+  }).join('');
+  return `<span class="weeksum">${s}</span>${lines}`;
+}
+
+// ---------- 7-day outlook data (daily only, one extra request) ----------
+let weekStatus = 'idle', weekDates = [];
+async function loadWeek(force = false) {
+  const key = `vcw1-${state.model}`;
+  weekStatus = 'loading';
+  try {
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) {}
+    if (force || !c || Date.now() - c.t > 3600e3 || c.sites?.length !== SITES.length) {
+      const params = new URLSearchParams({
+        latitude: SITES.map(s => s.lat).join(','), longitude: SITES.map(s => s.lng).join(','),
+        daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max',
+        timezone: 'Australia/Melbourne', forecast_days: '7',
+      });
+      if (state.model !== 'best_match') params.set('models', state.model);
+      const res = await fetch('https://api.open-meteo.com/v1/forecast?' + params, { signal: AbortSignal.timeout(30000) });
+      if (!res.ok) throw new Error(res.status);
+      let json = await res.json(); if (!Array.isArray(json)) json = [json];
+      c = { t: Date.now(), dates: json[0].daily.time, sites: json.map(({ daily: d }) => d.time.map((_, i) => ({
+        code: d.weather_code[i], tmax: d.temperature_2m_max[i], tmin: d.temperature_2m_min[i], rain: d.precipitation_sum[i],
+        pop: d.precipitation_probability_max?.[i] ?? null, wind: d.wind_speed_10m_max[i], gust: d.wind_gusts_10m_max[i],
+      }))) };
+      if (c.sites.every(days => days.every(x => x.tmax == null))) throw new Error('no data');
+      try { localStorage.setItem(key, JSON.stringify(c)); } catch (e) {}
+    }
+    weekDates = c.dates;
+    SITES.forEach((s, i) => { s.week = c.sites[i]; });
+    weekStatus = 'ok';
+  } catch (err) {
+    weekStatus = 'error';
+  }
+  if (state.day === 'week') render();
+}
+
+function describeBlock(bs, lab) {
+  bs = bs.filter(Boolean);
+  if (!bs.length) return 'No forecast yet.';
+  const c = mostCommon(bs.map(b => b.code));
+  const when = lab.name.toLowerCase();
+  const sky = bs[0].night ? SKY(c).replace('Sunny', 'Clear').replace('sunny', 'clear') : SKY(c);
+  let cond = isWet(c) ? `${WET(c)[0].toUpperCase() + WET(c).slice(1)} likely through the ${when}`
+    : `${sky} ${when}${bs.some(b => isWet(b.code)) ? `, ${WET(mostCommon(bs.map(b => b.code).filter(isWet)))} in places` : ''}`;
+  cond += rainWords(bs.map(b => b.rain), bs.map(b => b.code));
+  const hi = hiOf(bs.map(b => b.temp)), lo = loOf(bs.map(b => b.temp));
+  const temps = hi == null ? '' : `, ${feel(hi)} at around ${Math.round(lo) === Math.round(hi) ? Math.round(hi) : `${Math.round(lo)}–${Math.round(hi)}`}°`;
+  return `${cond}${temps}. ${windWords(hiOf(bs.map(b => b.wind)), hiOf(bs.map(b => b.gust)))}`.trim();
+}
+
+// Touring regions, so parks that sit together are compared together.
+const REGIONS = {
+  'Grampians & Wimmera': ['Grampians National Park', 'Mount Arapiles-Tooan State Park', 'Little Desert National Park', 'Mount Buangor National Park'],
+  'West Coast & Otways': ['Great Otway National Park', 'Lower Glenelg National Park', 'Discovery Bay Coastal Park', 'Budj Bim National Park'],
+  'Around Melbourne': ['Brisbane Ranges National Park', 'Point Nepean National Park', 'French Island National Park'],
+  'Lake Eildon & Yarra Ranges': ['Lake Eildon National Park', 'Cathedral Range State Park', 'Kinglake National Park', 'Upper Yarra Reservoir Park', 'Yarra Valley Parklands'],
+  'High Country': ['Alpine National Park', 'Mount Buffalo National Park'],
+  'Wilsons Prom': ['Wilsons Promontory National Park', 'Cape Liptrap Coastal Park'],
+  'Gippsland & East Coast': ['Gippsland Lakes Coastal Park', 'The Lakes National Park', 'Corringle Foreshore Reserve', 'Buchan Caves Reserve', 'Cape Conran Coastal Park', 'Croajingolong National Park', 'Point Hicks Lighthouse Reserve', 'Gabo Island Lighthouse Reserve'],
+};
+const PARK_REGION = {};
+for (const [rg, ps] of Object.entries(REGIONS)) ps.forEach(p => PARK_REGION[p] = rg);
+const regionOf = park => PARK_REGION[park] || park;
+const shortPark = p => p.replace(/ (National|State|Coastal|Regional|Reservoir) Park$| (Foreshore |Lighthouse |Caves )?Reserve$| Parklands$/, '');
+
+// ---------- Events ----------
+document.getElementById('days').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  stopPlay();
+  state.day = b.dataset.day === 'all' || b.dataset.day === 'week' ? b.dataset.day : +b.dataset.day;
+  state.slot = null;
+  updateSlotLabel(); renderDays(); render();
+});
+// Clicking a block in a popup's strip moves the slider there.
+// (Capture phase, because Leaflet stops clicks inside popups from bubbling.)
+document.getElementById('map').addEventListener('click', e => {
+  const c = e.target.closest('.strip .cell'); if (!c) return;
+  stopPlay(); setSlot(+c.dataset.slot);
+}, true);
+document.getElementById('filters').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.id === 'availOnly') {
+    state.availOnly = !state.availOnly;
+    b.setAttribute('aria-pressed', state.availOnly);
+    return render();
+  }
+  const k = b.dataset.kind;
+  state.kinds.has(k) ? state.kinds.delete(k) : state.kinds.add(k);
+  b.setAttribute('aria-pressed', state.kinds.has(k));
+  savePrefs(); render();
+});
+document.querySelectorAll('#filters button[data-kind]').forEach(b => b.setAttribute('aria-pressed', state.kinds.has(b.dataset.kind)));
+document.getElementById('search').addEventListener('input', e => { state.q = e.target.value.trim().toLowerCase(); render(); });
+document.getElementById('list').addEventListener('click', e => {
+  const pr = e.target.closest('button[data-park]');
+  if (pr) {
+    const rg = pr.dataset.park;
+    openParks.has(rg) ? openParks.delete(rg) : openParks.add(rg);
+    if (openParks.has(rg)) {
+      const pts = visible().filter(s => regionOf(s.park) === rg).map(s => [s.lat, s.lng]);
+      if (pts.length) { userMoved = true; map.flyToBounds(pts, { padding: [50, 50], maxZoom: 11, duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.8 }); }
+    }
+    return render();
+  }
+  const b = e.target.closest('button[data-id]'); if (!b) return;
+  const s = SITES.find(x => x.id === +b.dataset.id), m = markers.get(s.id);
+  userMoved = true;
+  map.flyTo([s.lat, s.lng], Math.max(map.getZoom(), 10), { duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.8 });
+  map.once('moveend', () => m.openPopup());
+  if (innerWidth <= 760) document.getElementById('map').scrollIntoView({ behavior: 'smooth' });
+});
+const modelSel = document.getElementById('model');
+modelSel.value = state.model;
+modelSel.addEventListener('change', () => { state.model = modelSel.value; savePrefs(); load(); });
+document.getElementById('refresh').addEventListener('click', () => load(true));
+
+updateSlotLabel();
+render();
+load();
+</script>
+</body>
+</html>
