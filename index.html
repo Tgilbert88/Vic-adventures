@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vic Outdoors</title>
+<style>
+  :root {
+    --bar: #1f3d33; --fg: #f3f1ea; --muted: #b9c7bf; --pill: rgba(255,255,255,.12); --on: #f3f1ea; --on-fg: #1f3d33;
+    --font: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bar: #12241e; }
+  }
+  :root[data-theme="dark"] { --bar: #12241e; }
+  html, body { margin: 0; height: 100%; background: var(--bar); font-family: var(--font); }
+  body { display: flex; flex-direction: column; }
+  nav {
+    flex: none; display: flex; align-items: center; gap: 12px; padding: 6px 16px;
+    background: var(--bar); color: var(--fg); border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  nav .name { font-weight: 700; letter-spacing: .02em; font-size: 14px; color: var(--muted); }
+  .toggle { display: inline-flex; background: var(--pill); border-radius: 999px; padding: 3px; gap: 2px; }
+  .toggle button {
+    border: 0; background: none; color: var(--fg); font: 600 14px/1 var(--font); padding: 7px 14px;
+    border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .toggle button[aria-pressed="true"] { background: var(--on); color: var(--on-fg); }
+  .toggle button:focus-visible { outline: 2px solid #8fd1b0; outline-offset: 2px; }
+  .toggle svg { width: 16px; height: 16px; }
+  nav .open { margin-left: auto; color: var(--muted); font-size: 13px; text-decoration: none; }
+  nav .open:hover { color: var(--fg); text-decoration: underline; }
+  main { flex: 1; position: relative; min-height: 0; }
+  iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+  iframe[hidden] { display: none; }
+  @media (max-width: 480px) { nav .name { display: none; } nav .open { display: none; } }
+</style>
+</head>
+<body>
+<nav>
+  <span class="name">Vic Outdoors</span>
+  <div class="toggle" role="group" aria-label="Choose app">
+    <button type="button" data-app="camp" aria-pressed="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 20 12 4l9 16H3z"/><path d="M12 20l-3-6h6l-3 6"/></svg>Camping</button>
+    <button type="button" data-app="snorkel" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"/><path d="M2 20c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"/><path d="M17 3v7"/></svg>Snorkelling</button>
+  </div>
+  <a class="open" id="openTab" href="camp/" target="_blank" rel="noopener">Open on its own ↗</a>
+</nav>
+<main>
+  <iframe id="f-camp" title="Vic Camp Forecast" data-src="camp/"></iframe>
+  <iframe id="f-snorkel" title="Melbourne Snorkel Check" data-src="snorkel/" hidden></iframe>
+</main>
+<script>
+// Both apps stay loaded once opened, so switching back keeps your place in each.
+const APPS = ['camp', 'snorkel'];
+function show(app) {
+  if (!APPS.includes(app)) app = 'camp';
+  APPS.forEach(a => {
+    const f = document.getElementById('f-' + a), on = a === app;
+    // Timestamp so each visit loads the latest version of each app, not a cached one.
+    if (on && !f.src) f.src = f.dataset.src + '?v=' + Date.now();
+    f.hidden = !on;
+    document.querySelector(`.toggle [data-app="${a}"]`).setAttribute('aria-pressed', on);
+  });
+  document.getElementById('openTab').href = `${app}/`;
+  document.title = app === 'camp' ? 'Vic Outdoors · Camping' : 'Vic Outdoors · Snorkelling';
+  if (location.hash !== '#' + app) history.replaceState(null, '', '#' + app);
+  try { localStorage.setItem('vo-app', app); } catch (e) {}
+}
+document.querySelector('.toggle').addEventListener('click', e => {
+  const b = e.target.closest('button[data-app]'); if (b) show(b.dataset.app);
+});
+let start = location.hash.slice(1);
+if (!APPS.includes(start)) { try { start = localStorage.getItem('vo-app'); } catch (e) {} }
+show(start || 'camp');
+</script>
+</body>
+</html>
